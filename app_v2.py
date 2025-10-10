@@ -91,6 +91,9 @@ def show_auth_page():
         with st.form("login_form"):
             email = st.text_input("Email")
             pw = st.text_input("Password", type="password")
+
+            email = email.strip().lower()
+
             if st.form_submit_button("Login"):
                 user = login_user(email, pw)
                 if user:
@@ -119,18 +122,25 @@ def show_auth_page():
             email = st.text_input("Email")
             pw = st.text_input("Password", type="password")
             cpw = st.text_input("Confirm Password", type="password")
+
+    # Normalize email to lowercase
+            email = email.strip().lower()
+
             if st.form_submit_button("Register"):
                 if not all([username, email, pw, cpw]):
                     st.warning("Please fill in all fields.")
+                elif not is_valid_email(email):
+                    st.error("Please enter a valid email address.")
                 elif pw != cpw:
                     st.error("Passwords do not match.")
-                elif register_user(username, email, pw):
+                elif register_user(username, email, pw):   # <- lowercase email stored
                     st.success("Registration successful! You can now log in.")
                     time.sleep(1)
                     st.session_state["show_register"] = False
                     st.rerun()
                 else:
                     st.error("Username or email already exists.")
+
 
         # 👇 Text + Button for Login
         st.markdown("Already have an account?")
