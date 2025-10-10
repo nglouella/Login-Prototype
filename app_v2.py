@@ -106,14 +106,24 @@ def show_auth_page():
                 else:
                     st.error("Invalid credentials. Please try again.")
 
-        # Text + Button in one line
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.markdown("Don’t have an account?")
-        with col2:
-            if st.button("Register here"):
-                st.session_state["show_register"] = True
-                st.rerun()
+        # Inline text + clickable link-like button
+        st.markdown(
+            """
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span>Don’t have an account?</span>
+                <button onclick="window.location.href='?page=register'" 
+                        style="background: none; border: none; color: #1f77b4; 
+                               text-decoration: underline; cursor: pointer; font-size: 14px;">
+                    Register here
+                </button>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        # Handle Streamlit state change instead of just HTML redirect
+        if "page" in st.query_params and st.query_params["page"] == "register":
+            st.session_state["show_register"] = True
+            st.rerun()
 
     else:
         st.markdown("## 📝 Create an Account")
@@ -135,14 +145,24 @@ def show_auth_page():
                 else:
                     st.error("Username or email already exists.")
 
-        # Text + Button in one line
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.markdown("Already have an account?")
-        with col2:
-            if st.button("Back to Login"):
-                st.session_state["show_register"] = False
-                st.rerun()
+        # Inline text + link-like button
+        st.markdown(
+            """
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span>Already have an account?</span>
+                <button onclick="window.location.href='?page=login'" 
+                        style="background: none; border: none; color: #1f77b4; 
+                               text-decoration: underline; cursor: pointer; font-size: 14px;">
+                    Back to Login
+                </button>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        if "page" in st.query_params and st.query_params["page"] == "login":
+            st.session_state["show_register"] = False
+            st.rerun()
+
 # ============================
 # PROFILE PAGE
 # ============================
