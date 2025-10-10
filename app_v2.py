@@ -106,12 +106,10 @@ def show_auth_page():
                 else:
                     st.error("Invalid credentials. Please try again.")
 
-        st.markdown("""
-        <p style='margin-top:10px;'>
-        Don’t have an account? 
-        <a class='auth-link' href='#' onclick="window.parent.postMessage({type: 'streamlit:setSessionState', data: {show_register: true}}, '*')">Register here.</a>
-        </p>
-        """, unsafe_allow_html=True)
+        # 👇 Replaced HTML link with a button
+        if st.button("Register here"):
+            st.session_state["show_register"] = True
+            st.rerun()
 
     else:
         st.markdown("## 📝 Create an Account")
@@ -133,13 +131,10 @@ def show_auth_page():
                 else:
                     st.error("Username or email already exists.")
 
-        st.markdown("""
-        <p style='margin-top:10px;'>
-        Already have an account? 
-        <a class='auth-link' href='#' onclick="window.parent.postMessage({type: 'streamlit:setSessionState', data: {show_register: false}}, '*')">Log in here.</a>
-        </p>
-        """, unsafe_allow_html=True)
-
+        # 👇 Replaced HTML link with a button
+        if st.button("Back to Login"):
+            st.session_state["show_register"] = False
+            st.rerun()
 # ============================
 # PROFILE PAGE
 # ============================
