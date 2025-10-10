@@ -87,7 +87,7 @@ st.markdown(theme_css, unsafe_allow_html=True)
 # ============================
 def show_auth_page():
     if not st.session_state["show_register"]:
-        st.markdown("## Login to Raw2Ready")
+        st.markdown("## 🔐 Login to Raw2Ready")
         with st.form("login_form"):
             email = st.text_input("Email")
             pw = st.text_input("Password", type="password")
@@ -106,12 +106,13 @@ def show_auth_page():
                 else:
                     st.error("Invalid credentials. Please try again.")
 
+        st.markdown("Don’t have an account?")
         if st.button("Register here"):
             st.session_state["show_register"] = True
             st.rerun()
 
     else:
-        st.markdown("## Create an Account")
+        st.markdown("## 📝 Create an Account")
         with st.form("register_form"):
             username = st.text_input("Username")
             email = st.text_input("Email")
@@ -130,6 +131,7 @@ def show_auth_page():
                 else:
                     st.error("Username or email already exists.")
 
+        st.markdown("Already have an account?")
         if st.button("Back to Login"):
             st.session_state["show_register"] = False
             st.rerun()
