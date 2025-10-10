@@ -486,7 +486,7 @@ elif menu=="Home":
 
             # Display status text
             def status_text(value, metric_type="neutral"):
-            """
+                """
                 metric_type options:
                 - "good" : green (improvement, like duplicates/nulls fixed)
                 - "bad"  : red (problem, like anomalies detected)
