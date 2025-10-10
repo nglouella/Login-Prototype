@@ -5,24 +5,20 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import re
-import difflib
-import time
-import toml
-import sqlite3
-import hashlib
-import os
+import re, difflib, time, toml, sqlite3, hashlib, os
 
-# Load config.toml
-config = toml.load(".streamlit/config.toml")
-
+# ============================
+# CONFIGURATION
+# ============================
 st.set_page_config(page_title="Raw to Ready", page_icon="🧹", layout="wide")
 
-# ==============================================================
-# DATABASE SETUP FOR LOGIN / REGISTER
-# ==============================================================
-DB_PATH = "users.db"
+if os.path.exists(".streamlit/config.toml"):
+    config = toml.load(".streamlit/config.toml")
 
+# ============================
+# DATABASE SETUP
+# ============================
+DB_PATH = "users.db"
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -34,271 +30,239 @@ def init_db():
             password_hash TEXT
         )
     """)
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
 
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+def hash_password(pw): 
+    return hashlib.sha256(pw.encode()).hexdigest()
 
-def register_user(username, email, password):
+def register_user(username, email, pw):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     try:
-        c.execute("INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
-                  (username, email, hash_password(password)))
-        conn.commit()
-        return True
+        c.execute("INSERT INTO users (username, email, password_hash) VALUES (?,?,?)",
+                  (username, email, hash_password(pw)))
+        conn.commit(); return True
     except sqlite3.IntegrityError:
         return False
     finally:
         conn.close()
 
-def login_user(email, password):
+def login_user(email, pw):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT * FROM users WHERE email = ? AND password_hash = ?",
-              (email, hash_password(password)))
+    c.execute("SELECT * FROM users WHERE email=? AND password_hash=?", 
+              (email, hash_password(pw)))
     user = c.fetchone()
     conn.close()
     return user
 
 init_db()
 
-# ==============================================================
+# ============================
 # SESSION INITIALIZATION
-# ==============================================================
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-if "username" not in st.session_state:
-    st.session_state["username"] = ""
-if "email" not in st.session_state:
-    st.session_state["email"] = ""
+# ============================
+for key, val in {"logged_in": False, "username": "", "email": ""}.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
+
 if "show_register" not in st.session_state:
     st.session_state["show_register"] = False
 
-# ==============================================================
-# LOGIN / REGISTER PAGE
-# ==============================================================
-def login_register_page():
-    st.title("🔐 Login / Register")
-    st.markdown("Access your account or create a new one to personalize your experience in **Raw to Ready**.")
-    st.divider()
+# ============================
+# CUSTOM THEME CSS
+# ============================
+theme_css = """
+<style>
+body { background-color: #F4F6F6; }
+.main-title {text-align:center;font-size:2.5em;font-weight:bold;color:#2E86C1;}
+.subtitle {text-align:center;font-size:1.2em;color:#555;margin-bottom:30px;}
+a.auth-link {color:#2E86C1;text-decoration:none;font-weight:600;}
+a.auth-link:hover {text-decoration:underline;}
+</style>
+"""
+st.markdown(theme_css, unsafe_allow_html=True)
 
+# ============================
+# LOGIN / REGISTER (Unified)
+# ============================
+def show_auth_page():
     if not st.session_state["show_register"]:
-        st.subheader("Login")
+        st.markdown("## 🔐 Login to Raw2Ready")
         with st.form("login_form"):
             email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
-            submitted = st.form_submit_button("Login")
-            if submitted:
-                user = login_user(email, password)
+            pw = st.text_input("Password", type="password")
+            if st.form_submit_button("Login"):
+                user = login_user(email, pw)
                 if user:
-                    st.session_state["logged_in"] = True
-                    st.session_state["username"] = user[1]
-                    st.session_state["email"] = user[2]
+                    st.session_state.update({
+                        "logged_in": True,
+                        "username": user[1],
+                        "email": user[2]
+                    })
                     st.success(f"Welcome back, {user[1]}!")
                     time.sleep(1)
+                    st.session_state["show_register"] = False
                     st.rerun()
                 else:
                     st.error("Invalid credentials. Please try again.")
 
         st.markdown("""
-        <p>Don’t have an account? 
-        <a href="#" style="color:#2E86C1;text-decoration:none;" 
-        onClick="window.parent.postMessage({type: 'streamlit:setSessionState', data: {show_register: true}}, '*')">
-        Register here.</a></p>
+        <p style='margin-top:10px;'>
+        Don’t have an account? 
+        <a class='auth-link' href='#' onclick="window.parent.postMessage({type: 'streamlit:setSessionState', data: {show_register: true}}, '*')">Register here.</a>
+        </p>
         """, unsafe_allow_html=True)
 
     else:
-        st.subheader("Register")
+        st.markdown("## 📝 Create an Account")
         with st.form("register_form"):
             username = st.text_input("Username")
             email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
-            confirm_password = st.text_input("Confirm Password", type="password")
-            submitted = st.form_submit_button("Register")
-            if submitted:
-                if not username or not email or not password or not confirm_password:
+            pw = st.text_input("Password", type="password")
+            cpw = st.text_input("Confirm Password", type="password")
+            if st.form_submit_button("Register"):
+                if not all([username, email, pw, cpw]):
                     st.warning("Please fill in all fields.")
-                elif password != confirm_password:
+                elif pw != cpw:
                     st.error("Passwords do not match.")
-                elif register_user(username, email, password):
+                elif register_user(username, email, pw):
                     st.success("Registration successful! You can now log in.")
-                    st.session_state["show_register"] = False
                     time.sleep(1)
+                    st.session_state["show_register"] = False
                     st.rerun()
                 else:
                     st.error("Username or email already exists.")
 
         st.markdown("""
-        <p>Already have an account? 
-        <a href="#" style="color:#2E86C1;text-decoration:none;" 
-        onClick="window.parent.postMessage({type: 'streamlit:setSessionState', data: {show_register: false}}, '*')">
-        Log in here.</a></p>
+        <p style='margin-top:10px;'>
+        Already have an account? 
+        <a class='auth-link' href='#' onclick="window.parent.postMessage({type: 'streamlit:setSessionState', data: {show_register: false}}, '*')">Log in here.</a>
+        </p>
         """, unsafe_allow_html=True)
 
-# ==============================================================
-# LOGOUT SECTION (SIDEBAR)
-# ==============================================================
-def logout_section():
-    st.sidebar.markdown("---")
-    st.sidebar.write(f"👤 Logged in as **{st.session_state['username']}**")
-    if st.sidebar.button("Logout"):
-        for key in ["logged_in", "username", "email"]:
-            st.session_state[key] = "" if key != "logged_in" else False
-        st.success("Logged out successfully!")
+# ============================
+# PROFILE PAGE
+# ============================
+def show_profile():
+    st.markdown("## 👤 My Profile")
+    st.write(f"**Username:** {st.session_state['username']}")
+    st.write(f"**Email:** {st.session_state['email']}")
+    if st.button("Logout"):
+        for k in ["logged_in", "username", "email"]:
+            st.session_state[k] = "" if k != "logged_in" else False
+        st.success("Logged out.")
         time.sleep(1)
         st.rerun()
 
-# ==============================================================
-# MAIN APP NAVIGATION
-# ==============================================================
-tab_main = st.tabs(["Login / Register", "Raw to Ready Data Cleaning Tool"])
-
-# ==============================================================
-# TAB 1 – LOGIN / REGISTER
-# ==============================================================
-with tab_main[0]:
-    login_register_page()
-
-# ==============================================================
-# TAB 2 – RAW TO READY CLEANING TOOL (YOUR ORIGINAL CODE)
-# ==============================================================
-with tab_main[1]:
-    if st.session_state["logged_in"]:
-        st.sidebar.success(f"Welcome, {st.session_state['username']}!")
-        logout_section()
-    else:
-        st.sidebar.info("🔓 You are in guest mode. Log in to personalize your experience.")
-
-    # ---------------------------
-    # Custom CSS for Theme
-    # ---------------------------
-    theme_css = """
-    <style>
-        body {
-            background-color: #F4F6F6;
-        }
-        .main-title {
-            text-align: center;
-            font-size: 2.5em;
-            font-weight: bold;
-            color: #2E86C1;
-        }
-        .subtitle {
-            text-align: center;
-            font-size: 1.2em;
-            color: #555;
-            margin-bottom: 30px;
-        }
-        .report-card {
-            padding: 20px;
-            border-radius: 15px;
-            background-color: #ffffff;
-            border-left: 6px solid #2E86C1;
-            box-shadow: 0px 2px 8px rgba(0,0,0,0.05);
-            text-align: center;
-        }
-        .delta-positive { color: green; }
-        .delta-negative { color: red; }
-        .delta-neutral { color: black; }
-    </style>
-    """
-    st.markdown(theme_css, unsafe_allow_html=True)
-
-    # ---------------------------
-    # Helper functions
-    # ---------------------------
-    def standardize_dates(series):
-        def parse_date(x):
-            for fmt in ("%Y-%m-%d", "%d/%m/%y", "%d/%m/%Y", "%b %d, %Y", "%Y.%m.%d"):
-                try:
-                    return datetime.strptime(str(x), fmt).strftime("%Y-%m-%d")
-                except:
-                    continue
-            return x
-        return series.apply(parse_date)
-
-    def normalize_text(series, col_name=""):
-        if "email" in col_name.lower():
-            return series
-        return series.astype(str).str.strip().str.lower().str.title()
-
-    def validate_emails(series):
-        return series.apply(lambda x: x if re.match(r"[^@]+@[^@]+\.[^@]+", str(x)) else "invalid@example.com")
-
-    def fill_missing(df, method="Fill with N/A"):
-        df_copy = df.copy()
-        for col in df_copy.columns:
-            if df_copy[col].isnull().sum() > 0:
-                if method == "Drop Rows":
-                    df_copy.dropna(inplace=True)
-                elif method == "Fill with N/A":
-                    df_copy[col].fillna("N/A", inplace=True)
-                elif method == "Fill with Mean" and pd.api.types.is_numeric_dtype(df_copy[col]):
-                    df_copy[col].fillna(df_copy[col].mean(), inplace=True)
-                elif method == "Fill with Median" and pd.api.types.is_numeric_dtype(df_copy[col]):
-                    df_copy[col].fillna(df_copy[col].median(), inplace=True)
-                elif method == "Fill by most common":
-                    df_copy[col].fillna(df_copy[col].mode()[0], inplace=True)
-        return df_copy
-
-    def fuzzy_standardize(series, cutoff=0.85):
-        series = series.astype(str).str.strip()
-        unique_vals = series.dropna().unique()
-        mapping = {}
-        for val in unique_vals:
-            match = difflib.get_close_matches(val, mapping.keys(), n=1, cutoff=cutoff)
-            if match:
-                mapping[val] = mapping[match[0]]
-            else:
-                mapping[val] = val
-        return series.map(mapping)
-
-    def detect_anomalies(df, threshold=3):
-        anomalies = pd.DataFrame()
-        for col in df.select_dtypes(include=[np.number]).columns:
-            if df[col].std() == 0:
+# ============================
+# HELPER FUNCTIONS (DATA CLEANING)
+# ============================
+def standardize_dates(series):
+    def parse_date(x):
+        for fmt in ("%Y-%m-%d", "%d/%m/%y", "%d/%m/%Y", "%b %d, %Y", "%Y.%m.%d"):
+            try:
+                return datetime.strptime(str(x), fmt).strftime("%Y-%m-%d")
+            except:
                 continue
-            z_scores = (df[col] - df[col].mean()) / df[col].std()
-            anomaly_mask = np.abs(z_scores) > threshold
-            if anomaly_mask.any():
-                col_anomalies = df[anomaly_mask].copy()
-                col_anomalies["Anomaly_Column"] = col
-                col_anomalies["Anomaly_Value"] = df[col][anomaly_mask]
-                anomalies = pd.concat([anomalies, col_anomalies])
-        return anomalies
+        return x
+    return series.apply(parse_date)
 
-    # ---------------------------
-    # Reset state when a new file is uploaded
-    # ---------------------------
-    def reset_cleaning_options():
-        st.session_state["do_duplicates"] = False
-        st.session_state["do_standardize_cols"] = False
-        st.session_state["do_normalize_text"] = False
-        st.session_state["do_fix_dates"] = False
-        st.session_state["do_validate_emails"] = False
-        st.session_state["do_fuzzy_standardize"] = False
-        st.session_state["do_anomaly_detection"] = False
-        st.session_state["fill_method"] = "Fill with N/A"
-        st.session_state["cleaned_ready"] = False
+def normalize_text(series, col_name=""):
+    """Normalize capitalization for names/cities, but skip emails."""
+    if "email" in col_name.lower():
+        return series
+    return series.astype(str).str.strip().str.lower().str.title()
 
-    # ---------------------------
-    # Hero Section
-    # ---------------------------
+def validate_emails(series):
+    return series.apply(lambda x: x if re.match(r"[^@]+@[^@]+\.[^@]+", str(x)) else "invalid@example.com")
+
+def fill_missing(df, method="Fill with N/A"):
+    df_copy = df.copy()
+    for col in df_copy.columns:
+        if df_copy[col].isnull().sum() > 0:
+            if method == "Drop Rows":
+                df_copy.dropna(inplace=True)
+            elif method == "Fill with N/A":
+                df_copy[col].fillna("N/A", inplace=True)
+            elif method == "Fill with Mean" and pd.api.types.is_numeric_dtype(df_copy[col]):
+                df_copy[col].fillna(df_copy[col].mean(), inplace=True)
+            elif method == "Fill with Median" and pd.api.types.is_numeric_dtype(df_copy[col]):
+                df_copy[col].fillna(df_copy[col].median(), inplace=True)
+            elif method == "Fill by most common":
+                df_copy[col].fillna(df_copy[col].mode()[0], inplace=True)
+    return df_copy
+
+def fuzzy_standardize(series, cutoff=0.85):
+    series = series.astype(str).str.strip()
+    unique_vals = series.dropna().unique()
+    mapping = {}
+
+    for val in unique_vals:
+        match = difflib.get_close_matches(val, mapping.keys(), n=1, cutoff=cutoff)
+        if match:
+            mapping[val] = mapping[match[0]]
+        else:
+            mapping[val] = val
+    return series.map(mapping)
+
+def detect_anomalies(df, threshold=3):
+    anomalies = pd.DataFrame()
+    for col in df.select_dtypes(include=[np.number]).columns:
+        if df[col].std() == 0:  # avoid divide by zero
+            continue
+        z_scores = (df[col] - df[col].mean()) / df[col].std()
+        anomaly_mask = np.abs(z_scores) > threshold
+        if anomaly_mask.any():
+            col_anomalies = df[anomaly_mask].copy()
+            col_anomalies["Anomaly_Column"] = col
+            col_anomalies["Anomaly_Value"] = df[col][anomaly_mask]
+            anomalies = pd.concat([anomalies, col_anomalies])
+    return anomalies
+
+# ---------------------------
+# Reset state when a new file is uploaded
+# ---------------------------
+def reset_cleaning_options():
+    st.session_state["do_duplicates"] = False
+    st.session_state["do_standardize_cols"] = False
+    st.session_state["do_normalize_text"] = False
+    st.session_state["do_fix_dates"] = False
+    st.session_state["do_validate_emails"] = False
+    st.session_state["do_fuzzy_standardize"] = False
+    st.session_state["do_anomaly_detection"] = False
+    st.session_state["fill_method"] = "Fill with N/A"
+    st.session_state["cleaned_ready"] = False
+
+# ============================
+# MAIN APP
+# ============================
+menu = st.sidebar.radio("Navigation", ["Home","Login / Register","Profile"])
+
+if menu=="Login / Register":
+    show_auth_page()
+
+elif menu=="Profile":
+    if st.session_state["logged_in"]:
+        show_profile()
+    else:
+        st.warning("Please log in first.")
+
+elif menu=="Home":
+    # Hero section
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        st.image("logo.png", use_container_width=False)
-    st.markdown("""
+        st.image("logo.png", use_container_width=False) 
+    st.markdown(
+    """
         <p style='font-size:15px; line-height:1.6;'>
         Welcome to <b>Raw to Ready!</b> This tool makes data cleaning super simple — 
         no need to worry about messy spreadsheets. Just upload your CSV, choose what you’d like to fix, 
         and we’ll take care of the rest. In a few clicks, you’ll have a clean, ready-to-use dataset for your projects!
         </p>
-        """, unsafe_allow_html=True)
+        """,unsafe_allow_html=True
+    )
 
     tab1, tab2, tab3 = st.tabs(["Raw Data Preview", "Cleaned Data Preview", "Anomalies Detected"])
-
     # ---------------------------
     # Sidebar
     # ---------------------------
@@ -306,9 +270,11 @@ with tab_main[1]:
     st.sidebar.markdown("An interactive platform that helps you quickly prepare your dataset for analysis.")
     st.sidebar.markdown("Follow the steps below:")
 
+    # Step 1: Upload
     st.sidebar.markdown("### 📥 Step 1: Upload your Dataset")
     uploaded_file = st.sidebar.file_uploader("CSV Files are accepted", type=["csv"])
 
+    # Reset cleaning options if a new file is uploaded
     if uploaded_file is not None and "last_uploaded" not in st.session_state:
         st.session_state["last_uploaded"] = uploaded_file.name
         reset_cleaning_options()
@@ -321,46 +287,113 @@ with tab_main[1]:
     # ---------------------------
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
+
+        # Save original stats
         rows_before = int(len(df))
         nulls_before = int(df.isnull().sum().sum())
         duplicates_before = int(df.duplicated().sum())
 
+        # Step 2: Options
         st.sidebar.markdown("### ⚙️ Step 2: Choose Cleaning Options")
         st.sidebar.caption("Select all options that apply to your dataset. Hover over each ❓ for guidance.")
         fill_method = st.sidebar.selectbox(
             "Missing Values",
             ["Fill with N/A", "Fill with Mean", "Fill with Median", "Fill by most common", "Drop Rows"],
-            key="fill_method",
-            help=("💡 Tip: For small datasets, filling values is better. If your dataset is big, you can consider dropping the rows.")
+             key="fill_method",
+             help=("💡 Tip: For small datasets, filling values is better. If your dataset is big, you can consider dropping the rows.")
         )
 
         with st.sidebar.expander("Advanced Options"):
-            st.checkbox("Remove duplicates", key="do_duplicates")
-            st.checkbox("Standardize column names", key="do_standardize_cols")
-            st.checkbox("Normalize text", key="do_normalize_text")
-            st.checkbox("Fix date formats", key="do_fix_dates")
-            st.checkbox("Validate emails", key="do_validate_emails")
-            st.checkbox("Fuzzy standardize values", key="do_fuzzy_standardize")
-            st.checkbox("Detect anomalies", key="do_anomaly_detection")
+            st.checkbox("Remove duplicates", key="do_duplicates",
+                        help="Removes rows that are exact duplicates. Recommended if your dataset has repeated entries.")
+            st.checkbox("Standardize column names", key="do_standardize_cols",
+                        help="Converts column names to lowercase and replaces spaces with underscores for consistency.")
+            st.checkbox("Normalize text", key="do_normalize_text",
+                        help="Makes text consistent (e.g., 'new york' → 'New York'). Skips emails automatically.")
+            st.checkbox("Fix date formats", key="do_fix_dates",
+                        help="Converts different date styles (e.g., '01/02/23', 'Feb 1, 2023') into YYYY-MM-DD format.")
+            st.checkbox("Validate emails", key="do_validate_emails",
+                        help="Ensures all emails follow a proper format. Invalid ones become `invalid@example.com`.")
+            st.checkbox("Fuzzy standardize values", key="do_fuzzy_standardize",
+                        help="Groups similar text values together (e.g., 'NYC', 'New York City', 'N.Y.C.' → 'NYC').")
+            st.checkbox("Detect anomalies", key="do_anomaly_detection",
+                        help="Flags unusual numeric values using statistical detection. Useful for spotting outliers (extreme values).")
 
+    
+        # Tabs for Raw vs Cleaned data
         with tab1:
             st.dataframe(df.head(10))
+
+            # Optional Dataset Details
             with st.expander("Show Dataset Details"):
                 st.markdown("**Column Info:**")
+                st.caption("This table shows each column in the dataset along with its detected data type.")
                 table_md = "| Column | Data Type |\n|--------|-----------|\n"
                 for col in df.columns:
                     table_md += f"| {col} | {df[col].dtype} |\n"
                 st.markdown(table_md)
+
                 st.markdown("**Summary Statistics:**")
+                st.caption(
+                     """
+                    This table provides descriptive statistics for each column in the dataset:
+
+                    - **Numerical columns** (numbers) show: count, mean, standard deviation, minimum, maximum, and percentiles.
+                    - **Categorical columns** (labels or text) show: count, number of unique values, most frequent value (*top*), and its frequency.
+                    """, unsafe_allow_html=True
+                )
                 st.dataframe(df.describe(include="all").transpose())
 
+        # Step 3: Run Cleaning
         st.sidebar.markdown("#### 🧹 Step 3: Apply Cleaning")
         if st.sidebar.button("Run Cleaning"):
+            # Custom CSS for Loader
             loader_css = st.empty()
-            loader_css.markdown("<h2>Cleaning in progress...</h2>", unsafe_allow_html=True)
-            df_cleaned = fill_missing(df, method=fill_method)
+            loader_css.markdown("""
+                <div id="loading-overlay" style="
+                    position: fixed;
+                    top: 0; left: 0;
+                    width: 100vw; height: 100vh;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    background-color: rgba(255,255,255,0.95);
+                    font-size: 42px;
+                    font-weight: bold;
+                    color: #2E86C1;
+                    z-index: 99999;
+                ">
+                    <div style="margin-bottom: 30px;"> Cleaning in progress, please wait.
+                    </div>
+                    <div class="loader"></div>
+                </div>
+
+                <style>
+                /* Spinner animation */
+                .loader {
+                    border: 14px solid #f3f3f3;
+                    border-top: 14px solid #2E86C1;
+                    border-radius: 50%;
+                    width: 120px;
+                    height: 120px;
+                    animation: spin 1s linear infinite;
+                }
+
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+                </style>
+            """, unsafe_allow_html=True)
+
+            # Cleaning steps
+            df_cleaned = df.copy()
+            df_cleaned = fill_missing(df_cleaned, method=fill_method)
+
             if st.session_state["do_duplicates"]:
                 df_cleaned.drop_duplicates(inplace=True)
+
             if st.session_state["do_standardize_cols"]:
                 df_cleaned.columns = [c.strip().lower().replace(" ", "_") for c in df_cleaned.columns]
 
@@ -453,7 +486,7 @@ with tab_main[1]:
 
             # Display status text
             def status_text(value, metric_type="neutral"):
-                """
+            """
                 metric_type options:
                 - "good" : green (improvement, like duplicates/nulls fixed)
                 - "bad"  : red (problem, like anomalies detected)
