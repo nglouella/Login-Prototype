@@ -85,6 +85,11 @@ st.markdown(theme_css, unsafe_allow_html=True)
 # ============================
 # LOGIN / REGISTER (Unified)
 # ============================
+def is_valid_email(email: str) -> bool:
+    """Validate email format using regex."""
+    pattern = r"^[^@]+@[^@]+\.[^@]+$"
+    return re.match(pattern, email) is not None
+
 def show_auth_page():
     if not st.session_state["show_register"]:
         st.markdown("## 🔐 Login to Raw2Ready")
