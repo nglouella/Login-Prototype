@@ -106,14 +106,11 @@ def show_auth_page():
                 else:
                     st.error("Invalid credentials. Please try again.")
 
-        # Inline text + button (real Streamlit button, clickable)
-        col1, col2 = st.columns([6, 2])
-        with col1:
-            st.write("Don’t have an account?")
-        with col2:
-            if st.button("Register here", key="go_register"):
-                st.session_state["show_register"] = True
-                st.rerun()
+        # Inline text + link-style button
+        st.write("Don’t have an account?", end=" ")
+        if st.button("Register here", key="go_register", help="Click to register"):
+            st.session_state["show_register"] = True
+            st.rerun()
 
     else:
         st.markdown("## 📝 Create an Account")
@@ -135,14 +132,11 @@ def show_auth_page():
                 else:
                     st.error("Username or email already exists.")
 
-        # Inline text + button (real Streamlit button, clickable)
-        col1, col2 = st.columns([6, 2])
-        with col1:
-            st.write("Already have an account?")
-        with col2:
-            if st.button("Back to Login", key="go_login"):
-                st.session_state["show_register"] = False
-                st.rerun()
+        # Inline text + link-style button
+        st.write("Already have an account?", end=" ")
+        if st.button("Back to Login", key="go_login", help="Click to login"):
+            st.session_state["show_register"] = False
+            st.rerun()
 
 # ============================
 # PROFILE PAGE
