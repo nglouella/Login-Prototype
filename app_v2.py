@@ -362,4 +362,152 @@ with tab_main[1]:
             if st.session_state["do_duplicates"]:
                 df_cleaned.drop_duplicates(inplace=True)
             if st.session_state["do_standardize_cols"]:
-                df_cleaned.columns = [c.strip().lower().replace]()_
+            df_cleaned.columns = [c.strip().lower().replace(" ", "_") for c in df_cleaned.columns]
+
+            if st.session_state["do_normalize_text"]:
+                for col in df_cleaned.select_dtypes(include=["object"]).columns:
+                    df_cleaned[col] = normalize_text(df_cleaned[col], col_name=col)
+
+            if st.session_state["do_fix_dates"]:
+                for col in df_cleaned.columns:
+                    if "date" in col.lower():
+                        df_cleaned[col] = standardize_dates(df_cleaned[col])
+
+            if st.session_state["do_validate_emails"]:
+                for col in df_cleaned.columns:
+                    if "email" in col.lower():
+                        df_cleaned[col] = validate_emails(df_cleaned[col])
+
+            if st.session_state["do_fuzzy_standardize"]:
+                for col in df_cleaned.select_dtypes(include=["object"]).columns:
+                    df_cleaned[col] = fuzzy_standardize(df_cleaned[col], cutoff=0.85)
+
+            anomalies = pd.DataFrame()
+            if st.session_state["do_anomaly_detection"]:
+                anomalies = detect_anomalies(df_cleaned)
+
+            loader_css.empty()
+            success_overlay = st.empty()
+
+            (success_overlay.markdown("""
+            <div style="
+                position: fixed;
+                top: 0; left: 0;
+                width: 100vw; height: 100vh;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                background-color: rgba(255,255,255,0.95);
+                font-size: 42px;
+                font-weight: bold;
+                color: #28A745;
+                z-index: 99999;
+            ">
+                Cleaning Completed Successfully!
+            </div>
+            """, unsafe_allow_html=True))
+
+            time.sleep(1)
+            success_overlay.empty()
+
+            with tab2:
+                st.dataframe(df_cleaned.head(10))
+
+            with tab3:
+                if "anomalies" in locals() and not anomalies.empty:
+                    rows_with_anomalies = anomalies.index.nunique()
+                    st.warning(f"{rows_with_anomalies} rows contain anomalies ⚠️")
+                    st.dataframe(anomalies)
+                
+                    # Recommendation for Anomalies
+                    st.markdown("""
+                    Anomalies are values in the dataset that are very different from the rest.
+                    They can occur naturally such as rare but valid high values or from errors like incrorrect data entry or wrong units.
+                
+                    **How to Handle Anomalies:** 
+                
+                    These are suggested actions, but the final decision depends on the context of your dataset and your goals:
+                    1. Review the flagged rows to understand why they appear unusual.  
+                    2. Compare them with reliable references or source data.  
+                    3. Possible actions:  
+                        - Keep them if they are valid rare cases.  
+                        - Correct them if they are clear errors.  
+                        - Remove them if they are invalid and distort analysis.  
+                    4. Document your decision so the cleaning process remains consistent and transparent.  
+                    """)
+                else:
+                    rows_with_anomalies = 0
+                    st.success("No anomalies detected ✅")
+
+            # Save cleaned stats
+            rows_after = int(len(df_cleaned))
+            nulls_after = int(df_cleaned.isnull().sum().sum())
+            duplicates_after = int(df_cleaned.duplicated().sum())
+            anomalies_count = rows_with_anomalies
+
+            # Compute deltas
+            delta_rows = rows_after - rows_before
+            delta_nulls = nulls_before - nulls_after
+            delta_duplicates = duplicates_before - duplicates_after
+
+            # Display status text
+            def status_text(value, metric_type="neutral"):
+                """
+                metric_type options:
+                - "good" : green (improvement, like duplicates/nulls fixed)
+                - "bad"  : red (problem, like anomalies detected)
+                - "neutral" : black (no change)
+                """
+                if value > 0:
+                    if metric_type == "good":
+                        return f"<span style='color:green;'>{abs(value)} fixed</span>"
+                    elif metric_type == "bad":
+                        return f"<span style='color:red;'>{abs(value)} detected</span>"
+                    else:
+                        return f"<span style='color:black;'>{abs(value)} added</span>"
+                elif value < 0:
+                    # Rare case if delta negative
+                    return f"<span style='color:red;'>{abs(value)} changed</span>"
+                else:
+                    return "<span style='color:black;'>unchanged</span>"
+
+            st.title("Summary")
+
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                with st.container(border=True):
+                    st.markdown("<div style='font-size:22px;'>Total Rows</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='font-size:40px;'>{rows_after}</div>", unsafe_allow_html=True)
+                    st.markdown(status_text(delta_rows, metric_type="neutral"), unsafe_allow_html=True)
+                    st.progress(rows_after / max(rows_before, 1))
+
+            with col2:
+                with st.container(border=True):
+                    st.markdown("<div style='font-size:22px;'>Null Values</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='font-size:40px;'>{nulls_after}</div>", unsafe_allow_html=True)
+                    st.markdown(status_text(delta_nulls, metric_type="good"), unsafe_allow_html=True)
+                    st.progress(delta_nulls / max(nulls_before, 1) if nulls_before else 0)
+
+            with col3:
+                with st.container(border=True):
+                    st.markdown("<div style='font-size:22px;'>Duplicates</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='font-size:40px;'>{duplicates_after}</div>", unsafe_allow_html=True)
+                    st.markdown(status_text(delta_duplicates, metric_type="good"), unsafe_allow_html=True)
+                    st.progress(delta_duplicates / max(duplicates_before, 1) if duplicates_before else 0)
+
+            with col4:
+                with st.container(border=True):
+                    st.markdown("<div style='font-size:22px;'>Anomalies Detected</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='font-size:40px;'>{anomalies_count}</div>", unsafe_allow_html=True)
+                    st.markdown(status_text(anomalies_count, metric_type="bad"), unsafe_allow_html=True)
+                    st.progress(anomalies_count / max(rows_after, 1))
+
+            # Step 4: Download
+            st.subheader("📥 Step 4: Save")
+            csv = df_cleaned.to_csv(index=False).encode("utf-8")
+            st.download_button("Download Cleaned CSV", csv, "cleaned_data.csv", "text/csv")
+
+    else:
+        st.info(" Upload a CSV file in the sidebar to get started!")
