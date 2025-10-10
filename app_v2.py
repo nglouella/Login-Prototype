@@ -362,7 +362,7 @@ with tab_main[1]:
             if st.session_state["do_duplicates"]:
                 df_cleaned.drop_duplicates(inplace=True)
             if st.session_state["do_standardize_cols"]:
-            df_cleaned.columns = [c.strip().lower().replace(" ", "_") for c in df_cleaned.columns]
+                df_cleaned.columns = [c.strip().lower().replace(" ", "_") for c in df_cleaned.columns]
 
             if st.session_state["do_normalize_text"]:
                 for col in df_cleaned.select_dtypes(include=["object"]).columns:
