@@ -3,275 +3,190 @@
 
 import streamlit as st
 import pandas as pd
-import hashlib
 import sqlite3
+import hashlib
 import io
-import difflib
 
+# =========================
+# CONFIGURATION
+# =========================
 st.set_page_config(page_title="Raw to Ready", page_icon="🧹", layout="wide")
 
-# -------------------------------
-# DATABASE FUNCTIONS
-# -------------------------------
-conn = sqlite3.connect("users.db", check_same_thread=False)
+# --- DATABASE SETUP ---
+conn = sqlite3.connect("users.db")
 c = conn.cursor()
-
-c.execute('''
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL
-)
-''')
+c.execute("""CREATE TABLE IF NOT EXISTS users (
+                username TEXT,
+                email TEXT UNIQUE,
+                password TEXT
+            )""")
 conn.commit()
 
-
+# --- HELPER FUNCTIONS ---
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-
-def register_user(username, email, password):
-    c.execute("INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
-              (username, email, hash_password(password)))
-    conn.commit()
-
-
-def login_user(email, password):
-    c.execute("SELECT * FROM users WHERE email=? AND password_hash=?", (email, hash_password(password)))
+def verify_user(email, password):
+    c.execute("SELECT * FROM users WHERE email=? AND password=?", (email, hash_password(password)))
     return c.fetchone()
 
+def add_user(username, email, password):
+    try:
+        c.execute("INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
+                  (username, email, hash_password(password)))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
 
-# -------------------------------
-# SESSION STATE INIT
-# -------------------------------
+# --- SESSION STATE ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-if "username" not in st.session_state:
-    st.session_state.username = ""
-if "df_raw" not in st.session_state:
-    st.session_state.df_raw = None
-if "df_clean" not in st.session_state:
-    st.session_state.df_clean = None
+if "user" not in st.session_state:
+    st.session_state.user = None
 
-
-# -------------------------------
-# NAVIGATION
-# -------------------------------
+# --- SIDEBAR LOGO + NAV ---
 st.sidebar.image("logonobg.png", use_container_width=True)
-menu = st.sidebar.radio("Navigation", ["Home", "Login / Register"])
+menu = st.sidebar.radio("Navigation", ["Home", "Login / Register", "Data Cleaning"])
 
-# -------------------------------
+# =========================
+# HOME PAGE
+# =========================
+if menu == "Home":
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.image("logo.png", use_container_width=False)
+
+    st.markdown("""
+    <p style='font-size:15px; line-height:1.6;'>
+     Welcome to <b>Raw to Ready!</b> This tool makes data cleaning super simple —
+     just upload your CSV, choose what you’d like to fix, and you’ll have a clean dataset ready for use.
+    </p>
+    """, unsafe_allow_html=True)
+
+# =========================
 # LOGIN / REGISTER PAGE
-# -------------------------------
-if menu == "Login / Register":
-    st.markdown("## 🔐 Login / Register")
+# =========================
+elif menu == "Login / Register":
+    st.markdown("---")
+    st.markdown("## Login / Register")
+
     col_login, col_register = st.columns(2)
 
+    # --- LOGIN ---
     with col_login:
         with st.container(border=True):
-            st.markdown("### Login")
+            st.markdown("### 🔐 Login")
             login_email = st.text_input("Email", key="login_email")
             login_password = st.text_input("Password", type="password", key="login_password")
-            if st.button("Login"):
-                user = login_user(login_email, login_password)
+            if st.button("Login", key="login_button"):
+                user = verify_user(login_email, login_password)
                 if user:
                     st.session_state.logged_in = True
-                    st.session_state.username = user[1]
-                    st.success(f"Welcome back, {user[1]}!")
+                    st.session_state.user = user[0]
+                    st.success(f"Welcome back, {user[0]}!")
                 else:
                     st.error("Invalid email or password.")
 
+    # --- REGISTER ---
     with col_register:
         with st.container(border=True):
-            st.markdown("### Register")
+            st.markdown("### 🧾 Register")
             reg_username = st.text_input("Username", key="register_username")
             reg_email = st.text_input("Email", key="register_email")
             reg_password = st.text_input("Password", type="password", key="register_password")
             reg_confirm = st.text_input("Confirm Password", type="password", key="register_confirm")
 
-            if st.button("Register"):
+            if st.button("Register", key="register_button"):
                 if reg_password != reg_confirm:
                     st.error("Passwords do not match.")
-                elif not reg_username or not reg_email or not reg_password:
-                    st.warning("Please fill out all fields.")
+                elif add_user(reg_username, reg_email, reg_password):
+                    st.success("Registration successful! You can now log in.")
                 else:
-                    try:
-                        register_user(reg_username, reg_email, reg_password)
-                        st.success("Registration successful! You can now log in.")
-                    except sqlite3.IntegrityError:
-                        st.error("Email already registered. Please log in.")
+                    st.warning("Email already registered.")
 
-# -------------------------------
-# HOME PAGE
-# -------------------------------
-elif menu == "Home":
+# =========================
+# DATA CLEANING PAGE
+# =========================
+elif menu == "Data Cleaning":
     if not st.session_state.logged_in:
-        st.warning("Please log in to access the cleaning tool.")
+        st.warning("Please log in to access the data cleaning tools.")
         st.stop()
 
-    st.markdown(f"### 👋 Welcome, {st.session_state.username}!")
-
-    st.markdown("""
-    <p style='font-size:15px; line-height:1.6;'>
-     Welcome to <b>Raw to Ready!</b> Upload your CSV, choose what to fix, and download your clean dataset.
-    </p>
-    """, unsafe_allow_html=True)
-
-    # --- SIDEBAR OPTIONS ---
+    st.markdown(f"### 👋 Welcome, {st.session_state.user}!")
     st.sidebar.markdown("### 📥 Step 1: Upload your Dataset")
     uploaded_file = st.sidebar.file_uploader("CSV Files are accepted", type=["csv"])
 
     st.sidebar.markdown("### ⚙️ Step 2: Choose Cleaning Options")
-    missing_choice = st.sidebar.selectbox(
-        "Handle Missing Values",
-        ["None", "Fill with N/A", "Fill with Mean", "Fill with Median", "Fill by most common", "Drop Rows"]
+    st.sidebar.caption("Select all options that apply. Hover over ❓ icons for tips.")
+
+    missing_option = st.sidebar.selectbox(
+        "Missing Values",
+        ["Fill with N/A", "Fill with Mean", "Fill with Median", "Fill by most common", "Drop Rows"],
+        help="💡 Tip: For small datasets, filling values is better. For large datasets, consider dropping rows."
     )
 
     with st.sidebar.expander("Advanced Options"):
-        remove_dupes = st.checkbox("Remove duplicates")
-        standardize_cols = st.checkbox("Standardize column names")
-        normalize_text = st.checkbox("Normalize text")
-        fix_dates = st.checkbox("Fix date formats")
-        validate_emails = st.checkbox("Validate emails")
-        fuzzy_standardize = st.checkbox("Fuzzy standardize values")
-        detect_anomalies = st.checkbox("Detect anomalies")
+        remove_dup = st.checkbox("Remove duplicates", help="Removes exact duplicate rows.")
+        std_colnames = st.checkbox("Standardize column names", help="Makes column names lowercase with underscores.")
+        normalize_txt = st.checkbox("Normalize text", help="Standardizes capitalization except for email fields.")
+        fix_dates = st.checkbox("Fix date formats", help="Converts date formats to YYYY-MM-DD.")
+        validate_emails = st.checkbox("Validate emails", help="Replaces invalid emails with placeholder.")
+        fuzzy_std = st.checkbox("Fuzzy standardize values", help="Groups similar text values together.")
+        detect_anom = st.checkbox("Detect anomalies", help="Flags unusual numeric values (outliers).")
 
+    st.sidebar.markdown("#### Step 3: Apply Cleaning")
     run_cleaning = st.sidebar.button("Run Cleaning")
 
-    # --- FILE UPLOAD ---
-    if uploaded_file is not None:
-        try:
-            st.session_state.df_raw = pd.read_csv(uploaded_file)
-            st.success("✅ File uploaded successfully!")
-        except Exception as e:
-            st.error(f"Error reading file: {e}")
-
-    # --- CLEANING FUNCTION ---
-    if run_cleaning and st.session_state.df_raw is not None:
-        df = st.session_state.df_raw.copy()
-
-        # Handle Missing Values
-        if missing_choice != "None":
-            if missing_choice == "Fill with N/A":
-                df = df.fillna("N/A")
-            elif missing_choice == "Fill with Mean":
-                df = df.fillna(df.mean(numeric_only=True))
-            elif missing_choice == "Fill with Median":
-                df = df.fillna(df.median(numeric_only=True))
-            elif missing_choice == "Fill by most common":
-                df = df.apply(lambda x: x.fillna(x.mode()[0]) if not x.mode().empty else x)
-            elif missing_choice == "Drop Rows":
-                df = df.dropna()
-
-        # Advanced Cleaning
-        if remove_dupes:
-            df = df.drop_duplicates()
-
-        if standardize_cols:
-            df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
-
-        if normalize_text:
-            for col in df.select_dtypes(include="object"):
-                if "email" not in col:
-                    df[col] = df[col].astype(str).str.strip().str.capitalize()
-
-        if fix_dates:
-            for col in df.columns:
-                try:
-                    df[col] = pd.to_datetime(df[col], errors="ignore").dt.strftime("%Y-%m-%d")
-                except Exception:
-                    pass
-
-        if validate_emails:
-            for col in df.columns:
-                if "email" in col:
-                    df[col] = df[col].apply(lambda x: x if isinstance(x, str) and "@" in x else "invalid@email.com")
-
-        if fuzzy_standardize:
-            for col in df.select_dtypes(include="object"):
-                unique_vals = df[col].dropna().unique()
-                mapping = {}
-                for val in unique_vals:
-                    close = difflib.get_close_matches(val, unique_vals, n=1, cutoff=0.8)
-                    if close:
-                        mapping[val] = close[0]
-                df[col] = df[col].replace(mapping)
-
-        # Simple Anomaly Detection (numeric outliers)
-        if detect_anomalies:
-            numeric_cols = df.select_dtypes(include="number")
-            anomalies = pd.DataFrame()
-            for col in numeric_cols:
-                mean, std = df[col].mean(), df[col].std()
-                outliers = df[(df[col] > mean + 3*std) | (df[col] < mean - 3*std)]
-                if not outliers.empty:
-                    anomalies = pd.concat([anomalies, outliers])
-            st.session_state.anomalies = anomalies
-        else:
-            st.session_state.anomalies = pd.DataFrame({"Note": ["No anomalies detected."]})
-
-        st.session_state.df_clean = df
-        st.success("✅ Cleaning complete!")
-
-    # --- TABS ---
     tab1, tab2, tab3 = st.tabs(["Raw Data Preview", "Cleaned Data Preview", "Anomalies Detected"])
-    with tab1:
-        st.markdown("### Raw Data Preview")
-        if st.session_state.df_raw is not None:
-            st.dataframe(st.session_state.df_raw.head())
+
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        with tab1:
+            st.markdown("### Raw Data Preview")
+            st.dataframe(df.head())
+
+        if run_cleaning:
+            cleaned_df = df.copy()
+
+            # Apply cleaning steps (placeholders for now)
+            if remove_dup:
+                cleaned_df = cleaned_df.drop_duplicates()
+
+            if std_colnames:
+                cleaned_df.columns = cleaned_df.columns.str.lower().str.replace(" ", "_")
+
+            if normalize_txt:
+                for col in cleaned_df.select_dtypes(include="object"):
+                    cleaned_df[col] = cleaned_df[col].str.strip().str.capitalize()
+
+            if fix_dates:
+                for col in cleaned_df.columns:
+                    if "date" in col.lower():
+                        cleaned_df[col] = pd.to_datetime(cleaned_df[col], errors="coerce").dt.strftime("%Y-%m-%d")
+
+            with tab2:
+                st.markdown("### Cleaned Data Preview")
+                st.dataframe(cleaned_df.head())
+
+            with tab3:
+                st.markdown("### Anomalies Detected")
+                st.dataframe(pd.DataFrame({"Report": ["No anomalies detected (demo)"]}))
+
+            st.markdown("---")
+            st.markdown("## Summary Report")
+            col1, col2, col3, col4 = st.columns(4)
+            for label, val in zip(["Total Rows", "Null Values", "Duplicates", "Anomalies"],
+                                  [len(cleaned_df), cleaned_df.isnull().sum().sum(), df.duplicated().sum(), 0]):
+                with eval(f"col{['Total Rows','Null Values','Duplicates','Anomalies'].index(label)+1}"):
+                    with st.container(border=True):
+                        st.markdown(f"<div style='font-size:22px;'>{label}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div style='font-size:40px;'>{val}</div>", unsafe_allow_html=True)
+                        st.progress(0)
+
+            csv = cleaned_df.to_csv(index=False).encode('utf-8')
+            st.download_button("Download Cleaned CSV", data=csv, file_name="cleaned_data.csv")
         else:
-            st.info("Upload a CSV to preview data.")
-
-    with tab2:
-        st.markdown("### Cleaned Data Preview")
-        if st.session_state.df_clean is not None:
-            st.dataframe(st.session_state.df_clean.head())
-        else:
-            st.info("Run cleaning to view results.")
-
-    with tab3:
-        st.markdown("### Anomalies Detected")
-        if "anomalies" in st.session_state:
-            st.dataframe(st.session_state.anomalies)
-        else:
-            st.info("Run cleaning to check for anomalies.")
-
-    # --- SUMMARY REPORT ---
-    st.markdown("---")
-    st.markdown("## Summary Report")
-
-    if st.session_state.df_clean is not None:
-        df = st.session_state.df_clean
-        total_rows = len(df)
-        null_values = df.isnull().sum().sum()
-        duplicates = df.duplicated().sum()
-        anomalies_count = len(st.session_state.anomalies) if "anomalies" in st.session_state else 0
-
-        col1, col2, col3, col4 = st.columns(4)
-        stats = {
-            "Total Rows": total_rows,
-            "Null Values": null_values,
-            "Duplicates": duplicates,
-            "Anomalies": anomalies_count
-        }
-
-        for i, (label, value) in enumerate(stats.items(), 1):
-            with eval(f"col{i}"):
-                with st.container(border=True):
-                    st.markdown(f"<div style='font-size:22px;'>{label}</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div style='font-size:40px;'>{value}</div>", unsafe_allow_html=True)
-                    st.progress(min(1.0, value / total_rows if total_rows > 0 else 0))
+            st.info("Adjust your cleaning options and click **Run Cleaning** to see results.")
     else:
-        st.info("Run cleaning to view summary statistics.")
-
-    # --- DOWNLOAD CLEANED FILE ---
-    if st.session_state.df_clean is not None:
-        buffer = io.StringIO()
-        st.session_state.df_clean.to_csv(buffer, index=False)
-        st.download_button(
-            label="⬇️ Download Cleaned CSV",
-            data=buffer.getvalue(),
-            file_name="cleaned_data.csv",
-            mime="text/csv"
-        )
+        st.info("Upload a CSV file to begin cleaning.")
