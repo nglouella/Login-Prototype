@@ -83,7 +83,6 @@ if menu == "Home":
 
     # If logged in show welcome & logout; otherwise show gentle note
     if st.session_state.logged_in:
-        st.success(f"👋 Logged in as: {st.session_state.username}")
         if st.sidebar.button("Logout"):
             st.session_state.logged_in = False
             st.session_state.username = None
