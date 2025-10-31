@@ -47,27 +47,12 @@ if "user" not in st.session_state:
 
 # --- SIDEBAR LOGO + NAV ---
 st.sidebar.image("logonobg.png", use_container_width=True)
-menu = st.sidebar.radio("Navigation", ["Home", "Login / Register", "Data Cleaning"])
-
-# =========================
-# HOME PAGE
-# =========================
-if menu == "Home":
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.image("logo.png", use_container_width=False)
-
-    st.markdown("""
-    <p style='font-size:15px; line-height:1.6;'>
-     Welcome to <b>Raw to Ready!</b> This tool makes data cleaning super simple —
-     just upload your CSV, choose what you’d like to fix, and you’ll have a clean dataset ready for use.
-    </p>
-    """, unsafe_allow_html=True)
+menu = st.sidebar.radio("Navigation", ["Home", "Login / Register"])
 
 # =========================
 # LOGIN / REGISTER PAGE
 # =========================
-elif menu == "Login / Register":
+if menu == "Login / Register":
     st.markdown("---")
     st.markdown("## Login / Register")
 
@@ -106,14 +91,27 @@ elif menu == "Login / Register":
                     st.warning("Email already registered.")
 
 # =========================
-# DATA CLEANING PAGE
+# HOME PAGE + CLEANING TOOL
 # =========================
-elif menu == "Data Cleaning":
+elif menu == "Home":
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.image("logo.png", use_container_width=False)
+
+    st.markdown("""
+    <p style='font-size:15px; line-height:1.6;'>
+     Welcome to <b>Raw to Ready!</b> This tool makes data cleaning super simple —
+     just upload your CSV, choose what you’d like to fix, and you’ll have a clean dataset ready for use.
+    </p>
+    """, unsafe_allow_html=True)
+
     if not st.session_state.logged_in:
         st.warning("Please log in to access the data cleaning tools.")
         st.stop()
 
     st.markdown(f"### 👋 Welcome, {st.session_state.user}!")
+
+    # --- SIDEBAR CLEANING OPTIONS ---
     st.sidebar.markdown("### 📥 Step 1: Upload your Dataset")
     uploaded_file = st.sidebar.file_uploader("CSV Files are accepted", type=["csv"])
 
@@ -138,10 +136,12 @@ elif menu == "Data Cleaning":
     st.sidebar.markdown("#### Step 3: Apply Cleaning")
     run_cleaning = st.sidebar.button("Run Cleaning")
 
+    # --- TABS ---
     tab1, tab2, tab3 = st.tabs(["Raw Data Preview", "Cleaned Data Preview", "Anomalies Detected"])
 
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
+
         with tab1:
             st.markdown("### Raw Data Preview")
             st.dataframe(df.head())
@@ -149,7 +149,7 @@ elif menu == "Data Cleaning":
         if run_cleaning:
             cleaned_df = df.copy()
 
-            # Apply cleaning steps (placeholders for now)
+            # Apply cleaning operations
             if remove_dup:
                 cleaned_df = cleaned_df.drop_duplicates()
 
@@ -173,6 +173,7 @@ elif menu == "Data Cleaning":
                 st.markdown("### Anomalies Detected")
                 st.dataframe(pd.DataFrame({"Report": ["No anomalies detected (demo)"]}))
 
+            # --- SUMMARY REPORT ---
             st.markdown("---")
             st.markdown("## Summary Report")
             col1, col2, col3, col4 = st.columns(4)
@@ -184,8 +185,10 @@ elif menu == "Data Cleaning":
                         st.markdown(f"<div style='font-size:40px;'>{val}</div>", unsafe_allow_html=True)
                         st.progress(0)
 
+            # --- DOWNLOAD BUTTON ---
             csv = cleaned_df.to_csv(index=False).encode('utf-8')
             st.download_button("Download Cleaned CSV", data=csv, file_name="cleaned_data.csv")
+
         else:
             st.info("Adjust your cleaning options and click **Run Cleaning** to see results.")
     else:
