@@ -1,38 +1,120 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
-
-
-#!/usr/bin/env python
-# coding: utf-8
-
 import streamlit as st
 import pandas as pd
+import hashlib
+import sqlite3
 import io
+import difflib
 
 st.set_page_config(page_title="Raw to Ready", page_icon="🧹", layout="wide")
 
-# --- SIDEBAR LOGO + NAV ---
-st.sidebar.image("logonobg.png", use_container_width=True)
-menu = st.sidebar.radio("Navigation", ["Home", "Login / Register"])
+# -------------------------------
+# DATABASE FUNCTIONS
+# -------------------------------
+conn = sqlite3.connect("users.db", check_same_thread=False)
+c = conn.cursor()
 
-# Initialize session state
+c.execute('''
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL
+)
+''')
+conn.commit()
+
+
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def register_user(username, email, password):
+    c.execute("INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
+              (username, email, hash_password(password)))
+    conn.commit()
+
+
+def login_user(email, password):
+    c.execute("SELECT * FROM users WHERE email=? AND password_hash=?", (email, hash_password(password)))
+    return c.fetchone()
+
+
+# -------------------------------
+# SESSION STATE INIT
+# -------------------------------
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "username" not in st.session_state:
+    st.session_state.username = ""
 if "df_raw" not in st.session_state:
     st.session_state.df_raw = None
 if "df_clean" not in st.session_state:
     st.session_state.df_clean = None
 
-# --- HOME PAGE ---
-if menu == "Home":
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.image("logo.png", use_container_width=False)
+
+# -------------------------------
+# NAVIGATION
+# -------------------------------
+st.sidebar.image("logonobg.png", use_container_width=True)
+menu = st.sidebar.radio("Navigation", ["Home", "Login / Register"])
+
+# -------------------------------
+# LOGIN / REGISTER PAGE
+# -------------------------------
+if menu == "Login / Register":
+    st.markdown("## 🔐 Login / Register")
+    col_login, col_register = st.columns(2)
+
+    with col_login:
+        with st.container(border=True):
+            st.markdown("### Login")
+            login_email = st.text_input("Email", key="login_email")
+            login_password = st.text_input("Password", type="password", key="login_password")
+            if st.button("Login"):
+                user = login_user(login_email, login_password)
+                if user:
+                    st.session_state.logged_in = True
+                    st.session_state.username = user[1]
+                    st.success(f"Welcome back, {user[1]}!")
+                else:
+                    st.error("Invalid email or password.")
+
+    with col_register:
+        with st.container(border=True):
+            st.markdown("### Register")
+            reg_username = st.text_input("Username", key="register_username")
+            reg_email = st.text_input("Email", key="register_email")
+            reg_password = st.text_input("Password", type="password", key="register_password")
+            reg_confirm = st.text_input("Confirm Password", type="password", key="register_confirm")
+
+            if st.button("Register"):
+                if reg_password != reg_confirm:
+                    st.error("Passwords do not match.")
+                elif not reg_username or not reg_email or not reg_password:
+                    st.warning("Please fill out all fields.")
+                else:
+                    try:
+                        register_user(reg_username, reg_email, reg_password)
+                        st.success("Registration successful! You can now log in.")
+                    except sqlite3.IntegrityError:
+                        st.error("Email already registered. Please log in.")
+
+# -------------------------------
+# HOME PAGE
+# -------------------------------
+elif menu == "Home":
+    if not st.session_state.logged_in:
+        st.warning("Please log in to access the cleaning tool.")
+        st.stop()
+
+    st.markdown(f"### 👋 Welcome, {st.session_state.username}!")
 
     st.markdown("""
     <p style='font-size:15px; line-height:1.6;'>
-     Welcome to <b>Raw to Ready!</b> This tool makes data cleaning simple — 
-     just upload your CSV, choose what to fix, and you’ll have a clean dataset ready for use.
+     Welcome to <b>Raw to Ready!</b> Upload your CSV, choose what to fix, and download your clean dataset.
     </p>
     """, unsafe_allow_html=True)
 
@@ -46,14 +128,18 @@ if menu == "Home":
         ["None", "Fill with N/A", "Fill with Mean", "Fill with Median", "Fill by most common", "Drop Rows"]
     )
 
-    remove_dupes = st.sidebar.checkbox("Remove duplicates", help="Removes exact duplicate rows.")
-    standardize_cols = st.sidebar.checkbox("Standardize column names", help="Makes column names lowercase with underscores.")
-    normalize_text = st.sidebar.checkbox("Normalize text", help="Standardizes capitalization except for email fields.")
-    fix_dates = st.sidebar.checkbox("Fix date formats", help="Converts date formats to YYYY-MM-DD.")
+    with st.sidebar.expander("Advanced Options"):
+        remove_dupes = st.checkbox("Remove duplicates")
+        standardize_cols = st.checkbox("Standardize column names")
+        normalize_text = st.checkbox("Normalize text")
+        fix_dates = st.checkbox("Fix date formats")
+        validate_emails = st.checkbox("Validate emails")
+        fuzzy_standardize = st.checkbox("Fuzzy standardize values")
+        detect_anomalies = st.checkbox("Detect anomalies")
 
     run_cleaning = st.sidebar.button("Run Cleaning")
 
-    # --- FUNCTIONALITY: FILE UPLOAD ---
+    # --- FILE UPLOAD ---
     if uploaded_file is not None:
         try:
             st.session_state.df_raw = pd.read_csv(uploaded_file)
@@ -61,11 +147,11 @@ if menu == "Home":
         except Exception as e:
             st.error(f"Error reading file: {e}")
 
-    # --- FUNCTIONALITY: RUN CLEANING ---
+    # --- CLEANING FUNCTION ---
     if run_cleaning and st.session_state.df_raw is not None:
         df = st.session_state.df_raw.copy()
 
-        # 1. Handle Missing Values
+        # Handle Missing Values
         if missing_choice != "None":
             if missing_choice == "Fill with N/A":
                 df = df.fillna("N/A")
@@ -78,21 +164,18 @@ if menu == "Home":
             elif missing_choice == "Drop Rows":
                 df = df.dropna()
 
-        # 2. Remove Duplicates
+        # Advanced Cleaning
         if remove_dupes:
             df = df.drop_duplicates()
 
-        # 3. Standardize Column Names
         if standardize_cols:
             df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
 
-        # 4. Normalize Text
         if normalize_text:
             for col in df.select_dtypes(include="object"):
                 if "email" not in col:
                     df[col] = df[col].astype(str).str.strip().str.capitalize()
 
-        # 5. Fix Date Formats
         if fix_dates:
             for col in df.columns:
                 try:
@@ -100,48 +183,77 @@ if menu == "Home":
                 except Exception:
                     pass
 
-        # Save cleaned data
+        if validate_emails:
+            for col in df.columns:
+                if "email" in col:
+                    df[col] = df[col].apply(lambda x: x if isinstance(x, str) and "@" in x else "invalid@email.com")
+
+        if fuzzy_standardize:
+            for col in df.select_dtypes(include="object"):
+                unique_vals = df[col].dropna().unique()
+                mapping = {}
+                for val in unique_vals:
+                    close = difflib.get_close_matches(val, unique_vals, n=1, cutoff=0.8)
+                    if close:
+                        mapping[val] = close[0]
+                df[col] = df[col].replace(mapping)
+
+        # Simple Anomaly Detection (numeric outliers)
+        if detect_anomalies:
+            numeric_cols = df.select_dtypes(include="number")
+            anomalies = pd.DataFrame()
+            for col in numeric_cols:
+                mean, std = df[col].mean(), df[col].std()
+                outliers = df[(df[col] > mean + 3*std) | (df[col] < mean - 3*std)]
+                if not outliers.empty:
+                    anomalies = pd.concat([anomalies, outliers])
+            st.session_state.anomalies = anomalies
+        else:
+            st.session_state.anomalies = pd.DataFrame({"Note": ["No anomalies detected."]})
+
         st.session_state.df_clean = df
         st.success("✅ Cleaning complete!")
 
-    # --- MAIN CONTENT ---
+    # --- TABS ---
     tab1, tab2, tab3 = st.tabs(["Raw Data Preview", "Cleaned Data Preview", "Anomalies Detected"])
-
     with tab1:
         st.markdown("### Raw Data Preview")
         if st.session_state.df_raw is not None:
             st.dataframe(st.session_state.df_raw.head())
         else:
-            st.info("Upload a CSV file to preview raw data.")
+            st.info("Upload a CSV to preview data.")
 
     with tab2:
         st.markdown("### Cleaned Data Preview")
         if st.session_state.df_clean is not None:
             st.dataframe(st.session_state.df_clean.head())
         else:
-            st.info("Click 'Run Cleaning' to view cleaned data.")
+            st.info("Run cleaning to view results.")
 
     with tab3:
         st.markdown("### Anomalies Detected")
-        st.dataframe(pd.DataFrame({"Anomaly Report": ["Anomaly detection feature coming in Sprint 4."]}))
+        if "anomalies" in st.session_state:
+            st.dataframe(st.session_state.anomalies)
+        else:
+            st.info("Run cleaning to check for anomalies.")
 
     # --- SUMMARY REPORT ---
     st.markdown("---")
     st.markdown("## Summary Report")
 
-    col1, col2, col3, col4 = st.columns(4)
     if st.session_state.df_clean is not None:
         df = st.session_state.df_clean
         total_rows = len(df)
         null_values = df.isnull().sum().sum()
         duplicates = df.duplicated().sum()
-        anomalies = 0  # Placeholder until Sprint 4
+        anomalies_count = len(st.session_state.anomalies) if "anomalies" in st.session_state else 0
 
+        col1, col2, col3, col4 = st.columns(4)
         stats = {
             "Total Rows": total_rows,
             "Null Values": null_values,
             "Duplicates": duplicates,
-            "Anomalies": anomalies
+            "Anomalies": anomalies_count
         }
 
         for i, (label, value) in enumerate(stats.items(), 1):
@@ -151,7 +263,7 @@ if menu == "Home":
                     st.markdown(f"<div style='font-size:40px;'>{value}</div>", unsafe_allow_html=True)
                     st.progress(min(1.0, value / total_rows if total_rows > 0 else 0))
     else:
-        st.info("Run data cleaning to view summary statistics.")
+        st.info("Run cleaning to view summary statistics.")
 
     # --- DOWNLOAD CLEANED FILE ---
     if st.session_state.df_clean is not None:
@@ -163,26 +275,3 @@ if menu == "Home":
             file_name="cleaned_data.csv",
             mime="text/csv"
         )
-
-# --- LOGIN / REGISTER PAGE ---
-else:
-    st.markdown("---")
-    st.markdown("## Login / Register")
-
-    col_login, col_register = st.columns(2)
-    with col_login:
-        with st.container(border=True):
-            st.markdown("### 🔐 Login")
-            st.text_input("Email", key="login_email")
-            st.text_input("Password", type="password", key="login_password")
-            st.button("Login", key="login_button")
-
-    with col_register:
-        with st.container(border=True):
-            st.markdown("### 🧾 Register")
-            st.text_input("Username", key="register_username")
-            st.text_input("Email", key="register_email")
-            st.text_input("Password", type="password", key="register_password")
-            st.text_input("Confirm Password", type="password", key="register_confirm")
-            st.button("Register", key="register_button")
-
