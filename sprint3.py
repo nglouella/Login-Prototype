@@ -87,8 +87,6 @@ if menu == "Home":
             st.session_state.logged_in = False
             st.session_state.username = None
             st.experimental_rerun()
-    else:
-        st.info("You may use the cleaning tools without signing in. (Signed-in cleaning will be saved to history in Sprint 4.)")
 
     # --- SIDEBAR OPTIONS (keep identical wording & helpers) ---
     st.sidebar.markdown("### 📥 Step 1: Upload your Dataset")
